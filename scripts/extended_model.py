@@ -9,6 +9,7 @@ import numpy as np
 from scipy.stats import norm
 import matplotlib as mpl
 from bisect import bisect
+from scipy.stats import norm
 
 
 def gnp_belief_network(n_nodes: int, prob: float, seed: int) -> nx.Graph:
@@ -194,3 +195,78 @@ def community_social_network(N: int, mu: float, M: int, seed=None):
     G.add_edges_from(random.sample(list(product(comm1, comm2)), inter))
 
     return G, comm1, comm2
+
+
+def choose_sender_receiver_belief(G):
+    """Randomly chooses 
+    1. a sender node 
+    2. a receiver node from the sender's neighbors 
+    3. a belief (focal edge) that will be sent from sender to receiver.
+
+    Parameters
+    ----------
+    - G -> social network
+    
+    Returns
+    -------
+    - sender
+    - receiver
+    - focal_edge"""
+
+    sender = random.sample([*G.nodes()],1)[0]
+    receiver = random.sample([*nx.all_neighbors(G, sender)], 1)[0]
+
+    focal_edge = random.sample([*G.nodes[sender]['belief_network'].edges()], 1)[0]
+
+    return sender, receiver, focal_edge
+
+
+def stochasticity(mean, normal_scale = 0.2):
+    """Takes a mean and standard deviation value and returns a randomly chosen value from
+    a normal distribution"""
+    
+    return list(norm.rvs(loc=mean, scale=normal_scale, size=1))[0]
+
+
+def calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1):
+    """Calculates the updated weight of the belief (focal edge)
+    
+     Parameters
+    ----------
+    - Social network
+    - Sender's belief
+    - Receiver's belief
+    - Focal edge (belief)
+    - Alpha
+    - Beta
+    
+    Returns
+    -------
+    - Updated receiver belief (b_i_plus_1)
+    """
+    
+    b_i = G.nodes[receiver]['belief_network'].edges[focal_edge].get('belief')
+    b_j = G.nodes[sender]['belief_network'].edges[focal_edge].get('belief')
+    
+    first_term = alpha * b_j
+
+    derivative = -1 * derivative_internal_energy(G.nodes[receiver]['belief_network'], focal_edge=focal_edge)
+    second_term = beta * derivative
+
+    update_term = first_term + second_term
+
+    b_i_plus_1 = b_i + stochasticity(update_term, normal_scale = 0.2)
+
+    if b_i_plus_1 > 1:
+        b_i_plus_1 = 1
+    elif b_i_plus_1 < -1:
+        b_i_plus_1 = -1
+
+    return b_i_plus_1
+
+
+def embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1):
+    """Embeds the updated receiver belief into its belief network inside the social 
+    network."""
+    
+    G.nodes[receiver]['belief_network'].edges[focal_edge]['belief'] = b_i_plus_1
