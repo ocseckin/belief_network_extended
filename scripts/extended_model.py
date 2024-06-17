@@ -1,7 +1,7 @@
 """Belief network model."""
 import math
 import random
-from itertools import combinations
+from itertools import combinations, product
 from functools import reduce
 from operator import mul
 import networkx as nx
@@ -26,10 +26,10 @@ def initialize_with_random_beliefs(G: nx.Graph, seed: int):
     )
 
 
-def complete_belief_network(N: int, edge_values="default") -> nx.Graph:
+def complete_belief_network(n_nodes: int, edge_values="default") -> nx.Graph:
     """create a belief network which is fully connected and with all edges set to a user input (1) unifrom float value or (2) that specified by a list.
     If user does not specify any edge values, this outputs a fully connected random graph using initialize_with_random_beliefs (with seed = 0))"""
-    G = nx.complete_graph(N)
+    G = nx.complete_graph(n_nodes)
 
     # if user does not input anything
     if edge_values == "default":
@@ -113,7 +113,84 @@ def derivative_triad_energy(G: nx.Graph, triad, focal_edge, weight_key="belief")
     """
 
     # the weights of the triadic edges not including the focal edge
-    triad_edges = itertools.combinations(triad, 2)
+    triad_edges = combinations(triad, 2)
     weights_wout_focal = [G[n1][n2][weight_key] for n1, n2 in triad_edges if set([n1, n2])!=set([focal_edge[0], focal_edge[1]])]
 
     return reduce(mul, weights_wout_focal, 1)
+
+def derivative_internal_energy(G: nx.Graph, focal_edge) -> float:
+
+    """calculate the derivative of the internal energy of an individual
+    with respect to the focal edge, evaluated at the given weight configuration.
+    This is reflects how much the internal energy changes upon changing the focal
+    edge weight.
+
+    Parameters
+    ----------
+    G -> networkx graph of the individual belief network
+
+    focal_edge -> focal "receiver edge" tuple eg: (1, 2)
+
+    Returns
+    -------
+    float
+        derivative of internal evaluated at the given weight configuration (edge weights)
+    """
+    # The triads not including the ones without the focal edge
+    triads = find_triads(G)
+    triads_with_focal_edge = [t for t in triads if (focal_edge[0] in t) & (focal_edge[1] in t)]
+    
+    return -1.0 * sum(derivative_triad_energy(G, triad, focal_edge) for triad in triads_with_focal_edge)
+
+
+def community_social_network(N: int, mu: float, M: int, seed=None):
+
+    """Obtain the social network of two communities with half of the nodes in c1 and half in c2.
+    - probability of intra community edges = (1-mu)
+    - probability of inter community edges = mu
+
+    Parameters
+    ----------
+    - N -> Number of nodes of the social network
+    - mu -> parameter to calculate probabilities of inter and intra community edges
+    - M -> Number of edges of the social network
+
+    Returns
+    -------
+    - The Social Network -> nx.Graph()
+    - list of nodes in community 1
+    - list of nodes in community 2
+
+    """
+
+    # fraction of intra community links
+    intra = math.ceil((1 - mu) * M)
+
+    # fraction of inter community links
+    inter = M - intra
+
+    G = nx.Graph()
+    G.add_nodes_from(list(range(0, N)))
+
+    if seed is None:
+        random.seed()
+    else:
+        random.seed(seed)
+
+    # community 1 - half the nodes
+    comm1 = random.sample(list(range(0, N)), k=math.ceil(N / 2))
+    # community 2 - the remaining nodes
+    comm2 = list(set(range(0, N)) - set(comm1))
+
+    # intra community edges
+    G.add_edges_from(
+        random.sample(
+            list(combinations(comm1, 2))
+            + list(combinations(comm2, 2)),
+            intra,
+        )
+    )
+    # inter community edges
+    G.add_edges_from(random.sample(list(product(comm1, comm2)), inter))
+
+    return G, comm1, comm2
