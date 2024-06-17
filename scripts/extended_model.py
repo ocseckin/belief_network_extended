@@ -270,3 +270,74 @@ def embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1):
     network."""
     
     G.nodes[receiver]['belief_network'].edges[focal_edge]['belief'] = b_i_plus_1
+
+
+def internal_energy_analysis(results):
+    """Takes the results coming out of N simulations, outputs their average"""
+    
+    simulation_count = len(results)
+    max_T_simulation = max([len(results[i].keys()) for i in range(simulation_count)])
+
+    internal_energy_analysis_data = {}
+
+    for k in results.keys():
+
+        # take the average of internal energies throughout each step of the simulation
+        avg_internal_energies = np.mean(np.array([v['internal_energies'] for v in results[k].values()]), axis=1)
+
+        # concatenate with an array full of -1s to make the shapes compatible
+        avg_internal_energies = np.concatenate([avg_internal_energies, np.array((max_T_simulation - len(avg_internal_energies)) * [-1])])
+
+        # log
+        internal_energy_analysis_data[k] = avg_internal_energies
+
+    x = [*range(np.array([*internal_energy_analysis_data.values()]).shape[1])]
+    avg = np.mean(np.array([*internal_energy_analysis_data.values()]),axis=0)
+    upper = np.percentile(np.array([*internal_energy_analysis_data.values()]),q=97.5,axis=0)
+    lower = np.percentile(np.array([*internal_energy_analysis_data.values()]),q=2.5,axis=0)
+
+    internal_energy_analysis_data_sum = {}
+    internal_energy_analysis_data_sum['x'] = x
+    internal_energy_analysis_data_sum['avg'] = avg
+    internal_energy_analysis_data_sum['upper'] = upper
+    internal_energy_analysis_data_sum['lower'] = lower
+    
+    return internal_energy_analysis_data_sum
+
+
+def better_off_worse_off_analysis(results):
+    """Takes the average of the count of better-off and worse-off agents in each step of the simulation"""
+
+    better_off_worse_off_data = {}
+    max_iteration = []
+
+    for sim_no, v in results.items():
+        better_off_worse_off_data[sim_no] = {}
+
+        for i, l in zip([-1,1], ['better_off','worse_off']):
+            count = [len(np.where(d['better_off']==i)[0]) for t, d in v.items() if 'better_off' in d.keys()]
+            better_off_worse_off_data[sim_no][l] = count
+
+            iteration = [t for t,d in v.items() if 'better_off' in d.keys()]
+            if len(iteration) > len(max_iteration):
+                max_iteration = iteration
+
+    # concatenation
+    better_off_worse_off_data = {k:{'better_off':np.concatenate([np.array(v['better_off']), np.array([0]*(len(max_iteration)-len(v['better_off'])))]), 'worse_off': np.concatenate([np.array(v['worse_off']), np.array([0]*(len(max_iteration)-len(v['better_off'])))]) } for k,v in better_off_worse_off_data.items()}
+
+    x = max_iteration
+    better_off_worse_off_data_sum = {}
+
+    for l in ['better_off', 'worse_off']:
+
+        avg = np.mean(np.array([v[l] for v in better_off_worse_off_data.values()]), axis=0)
+        upper = np.percentile(np.array([v[l] for v in better_off_worse_off_data.values()]),q=97.5, axis=0)
+        lower = np.percentile(np.array([v[l] for v in better_off_worse_off_data.values()]), q=2.5, axis=0)
+
+        better_off_worse_off_data_sum[l] = {}
+        better_off_worse_off_data_sum[l]['x'] = x
+        better_off_worse_off_data_sum[l]['avg'] = avg
+        better_off_worse_off_data_sum[l]['upper'] = upper
+        better_off_worse_off_data_sum[l]['lower'] = lower
+
+    return better_off_worse_off_data_sum
