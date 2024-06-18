@@ -272,6 +272,60 @@ def embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1):
     G.nodes[receiver]['belief_network'].edges[focal_edge]['belief'] = b_i_plus_1
 
 
+def simulate(sim_no):
+
+    # Initialize the dictionary to track beliefs
+    track = {}
+
+    # Initialize the social network
+    N = 500
+    p = .2
+    seed = 89
+    G = nx.gnp_random_graph(n=N, p=p)
+
+    # Embed the belief networks
+    n_nodes = 3
+    belief_network_dict = {i:{'belief_network':extended_model.complete_belief_network(n_nodes=n_nodes, edge_values="default")} for i in range(N)}
+    nx.set_node_attributes(G, belief_network_dict)
+    # Save the edge_list to use in the simulation
+    edge_list = [*belief_network_dict[0]['belief_network'].edges()]
+
+    # Simulate
+    per_interaction_to_track = 20
+    T = N * n_nodes * 100
+
+    for t in tqdm(range(T+1)):
+        
+        # Calculate internal energies
+        if t % per_interaction_to_track == 0:
+            track[t] = {}
+            beliefs = np.array([[G.nodes[n]['belief_network'].edges[e]['belief'] for e in edge_list] for n in G.nodes()])
+            internal_energies = np.array([extended_model.internal_energy(G.nodes[n]['belief_network']) for n in G.nodes()])
+            track[t]['internal_energies'] = internal_energies
+            track[t]['beliefs'] = beliefs
+
+            # Stopping criteria if all internal energies = -1 & nothing has changed from the last interaction
+            if t > per_interaction_to_track:
+
+                if all(np.array(internal_energies) == -1) & (sum(sum(track[[*track.keys()][-2]]['beliefs'] == track[[*track.keys()][-1]]['beliefs'])) == N * n_nodes):
+                    break
+
+        if (t % N == 0) & (t > N):
+            # this tracks whether an agent's internal energy got better (lower) or not
+            track[t]['better_off'] = np.sign(track[t]['internal_energies'] - track[t - N]['internal_energies'])
+        
+        # Randomly choose a sender, receiver and focal edge
+        sender, receiver, focal_edge = extended_model.choose_sender_receiver_belief(G)
+        
+        # Calculate the updated weight after agents interact
+        b_i_plus_1 = extended_model.calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1)
+
+        # Update the belief in the network
+        extended_model.embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
+
+    return (sim_no, track)
+
+
 def internal_energy_analysis(results):
     """Takes the results coming out of N simulations, outputs their average"""
     
@@ -341,3 +395,35 @@ def better_off_worse_off_analysis(results):
         better_off_worse_off_data_sum[l]['lower'] = lower
 
     return better_off_worse_off_data_sum
+
+
+def stability_analysis(results, N, types_of_stable = np.array([[1,1,1], [-1,-1,1], [-1,1,-1], [1,-1,-1]])):
+    
+    stability_analysis_data = {}
+
+    for k in results.keys():
+
+        temp = {}
+
+        for stable in types_of_stable:
+            temp = [[b==stable for b in v['beliefs']] for v in results[k].values()]
+            stable_name = ", ".join([str(i) for i in list(stable)])
+            temp[stable_name] = [sum([sum(i)==3 for i in t]) for t in temp]
+
+        temp = {i:v for i,(k,v) in enumerate(sorted([(k,v) for k,v in temp.items()], key=lambda x: np.mean(x[1]), reverse=True))}
+        stability_analysis_data[k] = temp
+
+    max_T_simulation = max([len(v[0]) for v in stability_analysis_data.values()])
+
+    stability_analysis_data = {k:{k_:v_+(max_T_simulation-len(v_))*[v_[-1]] for k_,v_ in v.items()} for k,v in stability_analysis_data.items()}
+
+    stability_analysis_data_sum = {}
+
+    for polarized in [*stability_analysis_data[0].keys()]:
+        stability_analysis_data_sum[polarized] = {}
+        stability_analysis_data_sum[polarized]['x'] = [*range(max_T_simulation)]
+        stability_analysis_data_sum[polarized]['avg'] = np.array([v[polarized] for v in stability_analysis_data.values()]).mean(axis=0)
+        stability_analysis_data_sum[polarized]['upper'] = np.percentile(np.array([v[polarized] for v in stability_analysis_data.values()]), axis=0, q=97.5)
+        stability_analysis_data_sum[polarized]['lower'] = np.percentile(np.array([v[polarized] for v in stability_analysis_data.values()]), axis=0, q=2.5)
+    
+    return stability_analysis_data_sum
