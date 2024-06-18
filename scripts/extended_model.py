@@ -10,6 +10,8 @@ from scipy.stats import norm
 import matplotlib as mpl
 from bisect import bisect
 from scipy.stats import norm
+from math import comb
+from tqdm import tqdm
 
 
 def gnp_belief_network(n_nodes: int, prob: float, seed: int) -> nx.Graph:
@@ -285,7 +287,7 @@ def simulate(sim_no):
 
     # Embed the belief networks
     n_nodes = 3
-    belief_network_dict = {i:{'belief_network':extended_model.complete_belief_network(n_nodes=n_nodes, edge_values="default")} for i in range(N)}
+    belief_network_dict = {i:{'belief_network':complete_belief_network(n_nodes=n_nodes, edge_values="default")} for i in range(N)}
     nx.set_node_attributes(G, belief_network_dict)
     # Save the edge_list to use in the simulation
     edge_list = [*belief_network_dict[0]['belief_network'].edges()]
@@ -300,7 +302,7 @@ def simulate(sim_no):
         if t % per_interaction_to_track == 0:
             track[t] = {}
             beliefs = np.array([[G.nodes[n]['belief_network'].edges[e]['belief'] for e in edge_list] for n in G.nodes()])
-            internal_energies = np.array([extended_model.internal_energy(G.nodes[n]['belief_network']) for n in G.nodes()])
+            internal_energies = np.array([internal_energy(G.nodes[n]['belief_network']) for n in G.nodes()])
             track[t]['internal_energies'] = internal_energies
             track[t]['beliefs'] = beliefs
 
@@ -315,13 +317,13 @@ def simulate(sim_no):
             track[t]['better_off'] = np.sign(track[t]['internal_energies'] - track[t - N]['internal_energies'])
         
         # Randomly choose a sender, receiver and focal edge
-        sender, receiver, focal_edge = extended_model.choose_sender_receiver_belief(G)
+        sender, receiver, focal_edge = choose_sender_receiver_belief(G)
         
         # Calculate the updated weight after agents interact
-        b_i_plus_1 = extended_model.calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1)
+        b_i_plus_1 = calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1)
 
         # Update the belief in the network
-        extended_model.embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
+        embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
 
     return (sim_no, track)
 
@@ -397,8 +399,10 @@ def better_off_worse_off_analysis(results):
     return better_off_worse_off_data_sum
 
 
-def stability_analysis(results, N, types_of_stable = np.array([[1,1,1], [-1,-1,1], [-1,1,-1], [1,-1,-1]])):
-    
+def stability_analysis(results, n_nodes):
+
+    types_of_stable = permute_stable_networks(n_nodes)
+
     stability_analysis_data = {}
 
     for k in results.keys():
@@ -427,3 +431,82 @@ def stability_analysis(results, N, types_of_stable = np.array([[1,1,1], [-1,-1,1
         stability_analysis_data_sum[polarized]['lower'] = np.percentile(np.array([v[polarized] for v in stability_analysis_data.values()]), axis=0, q=2.5)
     
     return stability_analysis_data_sum
+
+
+def round_down_even(n):
+    return 2 * int(n // 2)
+
+
+def permute_stable_networks(n_nodes):
+
+    # compute the number of edges
+    n_edges = comb(n_nodes,2)
+
+    # find the nearest even number that is equal or less than n_edges
+    nearest_even = round_down_even(n_edges)
+
+    # list of all even numbers until the nearest_even
+    all_even = [*range(0, nearest_even, 2)] + [nearest_even]
+
+    # remove the case in which there are 0 negatives since it is added manually
+    all_even = all_even
+
+    # define the items to permute
+    items = [-1, 1]
+
+    # generate all permutations
+    permutations = list(product(items, repeat=n_edges))
+
+    # keep only the stable situations
+    types_of_stable = np.array([p for p in permutations if len([i for i in p if i ==-1]) in all_even])
+
+    return types_of_stable
+
+
+def simulate(sim_no, n_nodes, N=100, p=.2):
+
+    # Initialize the dictionary to track beliefs
+    track = {}
+
+    # Initialize the social network
+    G = nx.gnp_random_graph(n=N, p=p)
+
+    # Embed the belief networks
+    belief_network_dict = {i:{'belief_network':complete_belief_network(n_nodes=n_nodes, edge_values="default")} for i in range(N)}
+    nx.set_node_attributes(G, belief_network_dict)
+    # Save the edge_list to use in the simulation
+    edge_list = [*belief_network_dict[0]['belief_network'].edges()]
+
+    # Simulate
+    per_interaction_to_track = 20
+    T = N * comb(n_nodes, 2)**2 * per_interaction_to_track
+    
+    for t in tqdm(range(T+1)):
+        
+        # Calculate internal energies
+        if t % per_interaction_to_track == 0:
+            track[t] = {}
+            beliefs = np.array([[G.nodes[n]['belief_network'].edges[e]['belief'] for e in edge_list] for n in G.nodes()])
+            internal_energies = np.array([internal_energy(G.nodes[n]['belief_network']) for n in G.nodes()])
+            track[t]['internal_energies'] = internal_energies
+            track[t]['beliefs'] = beliefs
+
+        if len([*track.keys()]) > n_nodes * N:
+            # Stopping criteria if all internal energies = -1 & nothing has changed since the N*(last interaction)
+            if all(np.array(internal_energies) == -1):# & (sum(sum(track[[*track.keys()][-1]]['beliefs'] - track[[*track.keys()][-1 * N]]['beliefs'])) == 0):
+                break
+
+        if (t % N == 0) & (t > N):
+            # this tracks whether an agent's internal energy got better (lower) or not
+            track[t]['better_off'] = np.sign(track[t]['internal_energies'] - track[t - N]['internal_energies'])
+        
+        # Randomly choose a sender, receiver and focal edge
+        sender, receiver, focal_edge = choose_sender_receiver_belief(G)
+        
+        # Calculate the updated weight after agents interact
+        b_i_plus_1 = calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1)
+
+        # Update the belief in the network
+        embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
+
+    return (sim_no, track)
