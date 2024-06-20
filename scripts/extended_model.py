@@ -1,4 +1,5 @@
 """Belief network model."""
+import analysis_helper
 import math
 import random
 from itertools import combinations, product
@@ -104,7 +105,7 @@ def triad_energy(G: nx.Graph, triad, weight_key="belief") -> float:
 
 
 def internal_energy(G: nx.Graph) -> float:
-    """calcualte the internal energy given the belief network using social balance."""
+    """Calculate the internal energy given the belief network using social balance."""
     triads = find_triads(G)
     return -1.0 * sum(triad_energy(G, triad) for triad in triads) / len(triads)
 
@@ -123,7 +124,7 @@ def derivative_triad_energy(G: nx.Graph, triad, focal_edge, weight_key="belief")
 
 def derivative_internal_energy(G: nx.Graph, focal_edge) -> float:
 
-    """calculate the derivative of the internal energy of an individual
+    """Calculate the derivative of the internal energy of an individual
     with respect to the focal edge, evaluated at the given weight configuration.
     This is reflects how much the internal energy changes upon changing the focal
     edge weight.
@@ -274,60 +275,6 @@ def embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1):
     G.nodes[receiver]['belief_network'].edges[focal_edge]['belief'] = b_i_plus_1
 
 
-def simulate(sim_no):
-
-    # Initialize the dictionary to track beliefs
-    track = {}
-
-    # Initialize the social network
-    N = 500
-    p = .2
-    seed = 89
-    G = nx.gnp_random_graph(n=N, p=p)
-
-    # Embed the belief networks
-    n_nodes = 3
-    belief_network_dict = {i:{'belief_network':complete_belief_network(n_nodes=n_nodes, edge_values="default")} for i in range(N)}
-    nx.set_node_attributes(G, belief_network_dict)
-    # Save the edge_list to use in the simulation
-    edge_list = [*belief_network_dict[0]['belief_network'].edges()]
-
-    # Simulate
-    per_interaction_to_track = 20
-    T = N * n_nodes * 100
-
-    for t in tqdm(range(T+1)):
-        
-        # Calculate internal energies
-        if t % per_interaction_to_track == 0:
-            track[t] = {}
-            beliefs = np.array([[G.nodes[n]['belief_network'].edges[e]['belief'] for e in edge_list] for n in G.nodes()])
-            internal_energies = np.array([internal_energy(G.nodes[n]['belief_network']) for n in G.nodes()])
-            track[t]['internal_energies'] = internal_energies
-            track[t]['beliefs'] = beliefs
-
-            # Stopping criteria if all internal energies = -1 & nothing has changed from the last interaction
-            if t > per_interaction_to_track:
-
-                if all(np.array(internal_energies) == -1) & (sum(sum(track[[*track.keys()][-2]]['beliefs'] == track[[*track.keys()][-1]]['beliefs'])) == N * n_nodes):
-                    break
-
-        if (t % N == 0) & (t > N):
-            # this tracks whether an agent's internal energy got better (lower) or not
-            track[t]['better_off'] = np.sign(track[t]['internal_energies'] - track[t - N]['internal_energies'])
-        
-        # Randomly choose a sender, receiver and focal edge
-        sender, receiver, focal_edge = choose_sender_receiver_belief(G)
-        
-        # Calculate the updated weight after agents interact
-        b_i_plus_1 = calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1)
-
-        # Update the belief in the network
-        embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
-
-    return (sim_no, track)
-
-
 def internal_energy_analysis(results):
     """Takes the results coming out of N simulations, outputs their average"""
     
@@ -402,6 +349,7 @@ def better_off_worse_off_analysis(results):
 def stability_analysis(results, n_nodes):
 
     types_of_stable = permute_stable_networks(n_nodes)
+    n_edges = comb(n_nodes,2)
 
     stability_analysis_data = {}
 
@@ -410,9 +358,8 @@ def stability_analysis(results, n_nodes):
         temp = {}
 
         for stable in types_of_stable:
-            temp = [[b==stable for b in v['beliefs']] for v in results[k].values()]
             stable_name = ", ".join([str(i) for i in list(stable)])
-            temp[stable_name] = [sum([sum(i)==3 for i in t]) for t in temp]
+            temp[stable_name] = [sum([all(b==stable) for b in v['beliefs']]) for v in results[k].values()]
 
         temp = {i:v for i,(k,v) in enumerate(sorted([(k,v) for k,v in temp.items()], key=lambda x: np.mean(x[1]), reverse=True))}
         stability_analysis_data[k] = temp
@@ -431,6 +378,56 @@ def stability_analysis(results, n_nodes):
         stability_analysis_data_sum[polarized]['lower'] = np.percentile(np.array([v[polarized] for v in stability_analysis_data.values()]), axis=0, q=2.5)
     
     return stability_analysis_data_sum
+
+
+def unique_belief_count_analysis(results):
+
+    # take only the belief arrays from each simulation
+    belief_arrays = [[len(np.unique(v_['beliefs'], axis=0)) for v_ in v.values()] for k, v in results.items()]
+
+    # find the maximum T in the dataset
+    max_T_simulation = max([len(a) for a in belief_arrays])
+
+    # padding for all belief arrays so that they are all the same shape
+    belief_arrays = [a+[a[-1]]*(max_T_simulation-len(a)) for a in belief_arrays]
+
+    # transform it into an array
+    belief_arrays = np.array(belief_arrays)
+
+    # summary statistics for each column
+    avg = np.mean(belief_arrays, axis=0)
+    upper = np.percentile(belief_arrays, axis=0, q=97.5)
+    lower = np.percentile(belief_arrays, axis=0, q=2.5)
+    x = [i*20 for i in range(len(belief_arrays[0]))]
+
+    unique_belief_count_analysis_sum = {'x':x, 'avg':avg, 'upper':upper, 'lower':lower}
+    
+    return unique_belief_count_analysis_sum
+
+
+def unique_stable_network_count_analysis(results, n_nodes):
+
+    types_of_stable = permute_stable_networks(n_nodes)
+
+    # find the unique number of stable beliefs in each simulation
+    unique_stable_network_count = [np.sum(np.array([[1 if len([b for b in v['beliefs'] if all(b == s)]) != 0 else 0 for v in track.values()] for s in types_of_stable]), axis=0) for track in results.values()]
+
+    # find the longest simulation time
+    max_T = max([len(a) for a in unique_stable_network_count])
+
+    # apply padding to make each array same shape
+    unique_stable_network_count = np.array([np.concatenate([a, np.array([a[-1]]*(max_T-len(a)))]) for a in unique_stable_network_count])
+
+    # compute summary statistics
+    x = [i*20 for i in range(len(unique_stable_network_count[0]))]
+    avg = np.mean(unique_stable_network_count,axis=0)
+    upper = np.percentile(unique_stable_network_count, axis=0, q=97.5)
+    lower = np.percentile(unique_stable_network_count, axis=0, q=2.5)
+
+    # put all together in a dict
+    unique_stable_network_count_sum = {'x':x, 'avg':avg, 'upper':upper, 'lower':lower}
+
+    return unique_stable_network_count_sum
 
 
 def round_down_even(n):
@@ -477,6 +474,10 @@ def simulate(sim_no, n_nodes, N=100, p=.2):
     # Save the edge_list to use in the simulation
     edge_list = [*belief_network_dict[0]['belief_network'].edges()]
 
+    # Get dictionaries ready for node coloring
+    types_of_stable = permute_stable_networks(n_nodes=3)
+    types_of_stable_naming, types_of_stable_coloring = analysis_helper.node_coloring_prep(types_of_stable, colors = ["#ef476f","#ffd166","#118ab2","#073b4c"])
+
     # Simulate
     per_interaction_to_track = 20
     T = N * comb(n_nodes, 2)**2 * per_interaction_to_track
@@ -490,6 +491,9 @@ def simulate(sim_no, n_nodes, N=100, p=.2):
             internal_energies = np.array([internal_energy(G.nodes[n]['belief_network']) for n in G.nodes()])
             track[t]['internal_energies'] = internal_energies
             track[t]['beliefs'] = beliefs
+
+            node_coloring = analysis_helper.node_coloring_on_social_network(G, types_of_stable_naming, types_of_stable_coloring)
+            track[t]['node_coloring'] = node_coloring
 
         if len([*track.keys()]) > n_nodes * N:
             # Stopping criteria if all internal energies = -1 & nothing has changed since the N*(last interaction)
@@ -509,4 +513,4 @@ def simulate(sim_no, n_nodes, N=100, p=.2):
         # Update the belief in the network
         embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
 
-    return (sim_no, track)
+    return (sim_no, track), G

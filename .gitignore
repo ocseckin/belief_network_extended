@@ -6,6 +6,10 @@ __pycache__/
 # Data
 *.json
 
+# Images
+*.png
+*.pdf
+
 # C extensions
 *.so
 
