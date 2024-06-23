@@ -9,6 +9,7 @@ __pycache__/
 # Images
 *.png
 *.pdf
+*.gif
 
 # C extensions
 *.so
