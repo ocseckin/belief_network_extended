@@ -13,6 +13,7 @@ from bisect import bisect
 from scipy.stats import norm
 from math import comb
 from tqdm import tqdm
+from sklearn.cluster import DBSCAN
 
 
 def gnp_belief_network(n_nodes: int, prob: float, seed: int) -> nx.Graph:
@@ -428,6 +429,41 @@ def unique_stable_network_count_analysis(results, n_nodes):
     unique_stable_network_count_sum = {'x':x, 'avg':avg, 'upper':upper, 'lower':lower}
 
     return unique_stable_network_count_sum
+
+
+def polarization_analysis(results):
+    
+    polarization_analysis_data = {}
+
+    for sim_no, track in results.items():
+        beliefs = beliefs = [v['beliefs'] for v in track.values()]
+
+        clustering = [DBSCAN(eps=.1, min_samples=3).fit(b).labels_ for b in beliefs]
+
+        polarization_analysis = []
+
+        for _, arr in enumerate(beliefs):
+            cluster_centroids, polarization = analysis_helper.compute_polarization(clustering = clustering[_], belief_arr = arr)
+            polarization_analysis.append(polarization)
+
+        polarization_analysis_data[sim_no] = polarization_analysis
+
+    # apply padding to have the same length of lists for each simulation
+    max_T = max([len(e) for e in polarization_analysis_data.values()])
+    polarization_analysis_data = {sim_no:e+[e[-1]]*(max_T-len(e)) for sim_no, e in polarization_analysis_data.items()}
+
+    # transform the experiment data into an array
+    arr = np.array([*polarization_analysis_data.values()])
+
+    # get aggregated results
+    x = [i*20 for i in range(max_T)]
+    avg = np.mean(arr, axis=0)
+    upper = np.percentile(arr, 97.5)
+    lower = np.percentile(arr, 2.5)
+
+    polarization_analysis_data_sum = {'x':x, 'avg':avg, 'upper':upper, 'lower':lower}
+    
+    return polarization_analysis_data_sum
 
 
 def round_down_even(n):
