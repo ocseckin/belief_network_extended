@@ -14,6 +14,7 @@ from scipy.stats import norm
 from math import comb
 from tqdm import tqdm
 from sklearn.cluster import DBSCAN
+from distinctipy import get_colors
 
 
 def gnp_belief_network(n_nodes: int, prob: float, seed: int) -> nx.Graph:
@@ -91,6 +92,10 @@ def add_colors_to_edges(G, binary=True):
         colors_for_edges = {e:{"color":gradient_colors[bisect(boundaries, G.edges[e]['belief'])]} for e in G.edges()}
 
     nx.set_edge_attributes(G, colors_for_edges)
+
+
+def rgb2hex(r,g,b):
+    return f'#{int(round(r*255)):02x}{int(round(g*255)):02x}{int(round(b*255)):02x}'
 
 
 def find_triads(G: nx.Graph):
@@ -488,10 +493,10 @@ def permute_stable_networks(n_nodes):
     items = [-1, 1]
 
     # generate all permutations
-    permutations = list(product(items, repeat=n_edges))
+    types_of_stable = np.array(list(product(items, repeat=n_edges)))
 
     # keep only the stable situations
-    types_of_stable = np.array([p for p in permutations if len([i for i in p if i ==-1]) in all_even])
+    #types_of_stable = np.array([p for p in permutations if len([i for i in p if i ==-1]) in all_even])
 
     return types_of_stable
 
@@ -548,5 +553,85 @@ def simulate(sim_no, n_nodes, N=100, p=.2):
 
         # Update the belief in the network
         embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
+
+    return (sim_no, track), G
+
+
+
+def simulate_rewiring(sim_no, n_nodes, N=300, p=.2, q=0):
+
+    # Initialize the dictionary to track beliefs
+    track = {}
+
+    # Initialize the social network
+    G = nx.gnp_random_graph(n=N, p=p)
+
+    # Embed the belief networks
+    belief_network_dict = {i:{'belief_network':complete_belief_network(n_nodes=n_nodes, edge_values="default")} for i in range(N)}
+    nx.set_node_attributes(G, belief_network_dict)
+    # Save the edge_list to use in the simulation
+    edge_list = [*belief_network_dict[0]['belief_network'].edges()]
+
+    # Get dictionaries ready for node coloring
+    types_of_stable = permute_stable_networks(n_nodes=n_nodes)
+    colors = get_colors(len(types_of_stable))
+    colors = [rgb2hex(c[0],c[1],c[2]) for c in colors]
+    types_of_stable_naming, types_of_stable_coloring = analysis_helper.node_coloring_prep(types_of_stable, colors = colors)
+
+    # Simulate
+    per_interaction_to_track = 10 * len(types_of_stable)
+    T = N * comb(n_nodes, 2)**2 * per_interaction_to_track
+    
+    for t in tqdm(range(T+1)):
+        
+        # Calculate internal energies
+        if t % per_interaction_to_track == 0:
+            track[t] = {}
+            beliefs = np.array([[G.nodes[n]['belief_network'].edges[e]['belief'] for e in edge_list] for n in G.nodes()])
+            internal_energies = np.array([internal_energy(G.nodes[n]['belief_network']) for n in G.nodes()])
+            track[t]['internal_energies'] = internal_energies
+            track[t]['beliefs'] = beliefs
+
+            node_coloring = analysis_helper.node_coloring_on_social_network(G, types_of_stable_naming, types_of_stable_coloring)
+            track[t]['node_coloring'] = node_coloring
+
+            if len([*track.keys()]) > n_nodes * N:
+                if sum(sum(track[[*track.keys()][-1]]['beliefs'] - track[[*track.keys()][-1 * N]]['beliefs'])) < .01:
+                    break
+            
+            if all(np.array(internal_energies) == -1):
+                break
+
+        #if (t % N == 0) & (t > N):
+            # this tracks whether an agent's internal energy got better (lower) or not
+        #    track[t]['better_off'] = np.sign(track[t]['internal_energies'] - track[t - N]['internal_energies'])
+        
+        
+        # Randomly choose a sender, receiver and focal edge
+        sender, receiver, focal_edge = choose_sender_receiver_belief(G)
+
+        # with probability q, remove the edge between the sender and receiver 
+        if np.random.rand() < q:
+            # remove the edge between the sender and the receiver
+            G.remove_edge(sender, receiver)
+
+            # choose a random node for both sender and receiver to connect
+            nodes_to_choose_from_sender = set([*G.nodes()]) - set([*nx.neighbors(G, sender)]) - set([receiver])
+            chosen_for_sender = np.random.choice(list(nodes_to_choose_from_sender))
+
+            nodes_to_choose_from_receiver = set([*G.nodes()]) - set([*nx.neighbors(G, receiver)]) - set([sender])
+            chosen_for_receiver = np.random.choice(list(nodes_to_choose_from_receiver))
+
+            # add an edge between sender/receiver and their new connection
+            G.add_edge(sender, chosen_for_sender)
+            G.add_edge(receiver, chosen_for_receiver)
+
+        # if rewiring does not happen, update the weights
+        else:
+            # Calculate the updated weight after agents interact
+            b_i_plus_1 = calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1)
+
+            # Update the belief in the network
+            embed_b_i_plus_1_to_belief_network(G, receiver, focal_edge, b_i_plus_1)
 
     return (sim_no, track), G

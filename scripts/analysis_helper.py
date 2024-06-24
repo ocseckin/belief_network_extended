@@ -26,7 +26,10 @@ plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
 plt.rcParams['font.size'] = 14
 
-def overall_analysis(n_nodes, track, i, save=False):
+def flatten(xss):
+    return [x for xs in xss for x in xs]
+
+def overall_analysis(n_nodes, track, i, folder, save=False):
 
     types_of_stable = extended_model.permute_stable_networks(n_nodes)
 
@@ -49,7 +52,7 @@ def overall_analysis(n_nodes, track, i, save=False):
     for stable in types_of_stable:
         axs[1][0].plot(x,
                     [sum([all(b==stable) for b in v['beliefs']]) for v in track.values()],
-                    label=", ".join([str(i) for i in list(stable)]),
+                    #label=", ".join([str(i) for i in list(stable)]),
                     )
     axs[1][0].plot(x,
                 [sum(v['internal_energies']==-1) for k,v in track.items()],
@@ -88,7 +91,7 @@ def overall_analysis(n_nodes, track, i, save=False):
         cluster_centroids, polarization = compute_polarization(clustering = clustering[_], belief_arr = arr)
         polarization_analysis.append(polarization)
 
-    axs[1][1].plot([i*20 for i in range(len(polarization_analysis))],
+    axs[1][1].plot(x,
                     polarization_analysis)
     axs[1][1].set_ylim(-.05,1.05)
 
@@ -103,7 +106,7 @@ def overall_analysis(n_nodes, track, i, save=False):
     fig.tight_layout()
     
     if save:
-        fig.savefig(f'../figures/main/simulation_{i}.pdf')
+        fig.savefig(f'../figures/main/{folder}/simulation_{i}.pdf')
     fig.show()
 
 
