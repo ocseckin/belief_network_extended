@@ -610,9 +610,9 @@ def simulate_rewiring(sim_no, n_nodes, N=300, p=.2, q=0):
             clustering = DBSCAN(eps=.1, min_samples=3).fit(beliefs).labels_
             track[t]['clustering'] = clustering
 
-            if sum(clustering)!=-N:
-                if t > per_interaction_to_track * n_nodes * n_edges:
-                    if sum(track[t]['clustering'] - track[t - per_interaction_to_track * n_nodes * n_edges]['clustering']) == 0:
+            if (sum(clustering)!=-N):
+                if t > per_interaction_to_track * n_nodes * n_edges * 10:
+                    if sum(track[t]['clustering'] - track[t - per_interaction_to_track * n_nodes * n_edges * 10]['clustering']) == 0:
                         break
             
             if all(np.array(internal_energies) == -1):
@@ -633,14 +633,14 @@ def simulate_rewiring(sim_no, n_nodes, N=300, p=.2, q=0):
 
             # choose a random node for both sender and receiver to connect
             nodes_to_choose_from_sender = set([*G.nodes()]) - set([*nx.neighbors(G, sender)]) - set([receiver])
-            chosen_for_sender = np.random.choice(list(nodes_to_choose_from_sender))
+            if len(nodes_to_choose_from_sender)>0:
+                chosen_for_sender = np.random.choice(list(nodes_to_choose_from_sender))
+                G.add_edge(sender, chosen_for_sender)
 
             nodes_to_choose_from_receiver = set([*G.nodes()]) - set([*nx.neighbors(G, receiver)]) - set([sender])
-            chosen_for_receiver = np.random.choice(list(nodes_to_choose_from_receiver))
-
-            # add an edge between sender/receiver and their new connection
-            G.add_edge(sender, chosen_for_sender)
-            G.add_edge(receiver, chosen_for_receiver)
+            if len(nodes_to_choose_from_receiver)>0:
+                chosen_for_receiver = np.random.choice(list(nodes_to_choose_from_receiver))
+                G.add_edge(receiver, chosen_for_receiver)            
 
         # if rewiring does not happen, update the weights
         else:
