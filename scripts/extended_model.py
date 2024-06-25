@@ -463,8 +463,8 @@ def polarization_analysis(results):
     # get aggregated results
     x = [i*20 for i in range(max_T)]
     avg = np.mean(arr, axis=0)
-    upper = np.percentile(arr, 97.5)
-    lower = np.percentile(arr, 2.5)
+    upper = np.percentile(arr, 97.5, axis=0)
+    lower = np.percentile(arr, 2.5, axis=0)
 
     polarization_analysis_data_sum = {'x':x, 'avg':avg, 'upper':upper, 'lower':lower}
     
@@ -493,10 +493,20 @@ def permute_stable_networks(n_nodes):
     items = [-1, 1]
 
     # generate all permutations
-    types_of_stable = np.array(list(product(items, repeat=n_edges)))
+    permutations = np.array(list(product(items, repeat=n_edges)))
 
-    # keep only the stable situations
-    #types_of_stable = np.array([p for p in permutations if len([i for i in p if i ==-1]) in all_even])
+    # create a complete graph
+    g = nx.complete_graph(n_nodes)
+    edge_list = [*g.edges()]
+
+    types_of_stable = []
+
+    for p in permutations:
+        attr = {e:{'belief':b} for e,b in zip(edge_list, p)}
+        nx.set_edge_attributes(g, attr)
+        E = internal_energy(g)
+        if E == -1:
+            types_of_stable.append(p)
 
     return types_of_stable
 
@@ -579,8 +589,9 @@ def simulate_rewiring(sim_no, n_nodes, N=300, p=.2, q=0):
     types_of_stable_naming, types_of_stable_coloring = analysis_helper.node_coloring_prep(types_of_stable, colors = colors)
 
     # Simulate
-    per_interaction_to_track = 10 * len(types_of_stable)
-    T = N * comb(n_nodes, 2)**2 * per_interaction_to_track
+    n_edges = comb(n_nodes, 2)
+    per_interaction_to_track = 5 * len(types_of_stable)
+    T = N * n_edges**2 * per_interaction_to_track
     
     for t in tqdm(range(T+1)):
         
@@ -595,9 +606,14 @@ def simulate_rewiring(sim_no, n_nodes, N=300, p=.2, q=0):
             node_coloring = analysis_helper.node_coloring_on_social_network(G, types_of_stable_naming, types_of_stable_coloring)
             track[t]['node_coloring'] = node_coloring
 
-            if len([*track.keys()]) > n_nodes * N:
-                if sum(sum(track[[*track.keys()][-1]]['beliefs'] - track[[*track.keys()][-1 * N]]['beliefs'])) < .01:
-                    break
+            # belief clusters
+            clustering = DBSCAN(eps=.1, min_samples=3).fit(beliefs).labels_
+            track[t]['clustering'] = clustering
+
+            if sum(clustering)!=-N:
+                if t > per_interaction_to_track * n_nodes * n_edges:
+                    if sum(track[t]['clustering'] - track[t - per_interaction_to_track * n_nodes * n_edges]['clustering']) == 0:
+                        break
             
             if all(np.array(internal_energies) == -1):
                 break

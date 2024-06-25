@@ -103,6 +103,9 @@ def overall_analysis(n_nodes, track, i, folder, save=False):
     axs[1][0].set_xlabel('Time Step (t)')
     axs[1][1].set_xlabel('Time Step (t)')
 
+    #for row, col in zip([0, 1, 0, 1], [0, 0, 1, 1]):
+    #    axs[row][col].set_xscale('log')
+
     fig.tight_layout()
     
     if save:
