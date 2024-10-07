@@ -80,9 +80,14 @@ def calculate_updated_weight(G, sender, receiver, focal_edge, alpha=1.5, beta=1)
     - Updated receiver belief (b_i_plus_1)
     """
     
+    if sender == None:
+        # if no sender, take b_j as 0
+        b_j = 0
+    else:
+        b_j = G.nodes[sender]['belief_network'].edges[focal_edge].get('weight')
+
     b_i = G.nodes[receiver]['belief_network'].edges[focal_edge].get('weight')
-    b_j = G.nodes[sender]['belief_network'].edges[focal_edge].get('weight')
-    
+        
     first_term = alpha * b_j
 
     derivative = -1 * derivative_internal_energy(G.nodes[receiver]['belief_network'], focal_edge=focal_edge)
@@ -111,7 +116,7 @@ def find_mutual_edges(G, H):
     return common_edges_as_tuples
 
 
-def choose_sender_receiver_mutual_belief(G):
+def choose_sender_receiver_focal_edge(G, mutual = False):
     """Randomly chooses 
     1. a sender node 
     2. a receiver node from the sender's neighbors 
@@ -131,11 +136,14 @@ def choose_sender_receiver_mutual_belief(G):
     receiver = random.sample([*nx.all_neighbors(G, sender)], 1)[0]
 
     # find the mutual edges
-    mutual_edges = find_mutual_edges(G.nodes[sender]['belief_network'], G.nodes[receiver]['belief_network'])
-    
-    # choose one of the mutual edges as the focal edge
-    index = np.random.randint(len(mutual_edges))
-    focal_edge = mutual_edges[index]
+    if mutual:
+        mutual_edges = find_mutual_edges(G.nodes[sender]['belief_network'], G.nodes[receiver]['belief_network'])
+        # choose one of the mutual edges as the focal edge
+        index = np.random.randint(len(mutual_edges))
+        focal_edge = mutual_edges[index]
+        
+    else:
+        focal_edge = random.choice([*G.nodes[sender]['belief_network'].edges()])
 
     return sender, receiver, focal_edge
 
@@ -166,13 +174,22 @@ def generate_embed_belief_networks_to_social_network(social_G, communities):
         # add community edge
         belief_G.add_edge(n, comm, weight=1)
         belief_G.add_edge(n, opp_comm, weight=-1)
-        
+
         # add the concept of a "truck"
         belief_G.add_edge(n, "truck", weight=np.random.normal(loc=0, scale=.2))
 
+        # what are all the possible edges
+        all_possible_edges = set([*combinations([*belief_G.nodes()], r=2)])
+
+        # which ones are non-existent?
+        nonexistent_edges = set(map(frozenset, all_possible_edges)) - set(map(frozenset, belief_G.edges()))
+
+        # add very small weight to all the non-existent edges
+        belief_G.add_weighted_edges_from([(tuple(e)[0], tuple(e)[1], np.random.normal(loc=0, scale=.00001)) for e in nonexistent_edges])
+
         # add belief network to the dictionary to update the social network after
         belief_networks[n] = {}
-        belief_networks[n]['belief_network'] = belief_G        
+        belief_networks[n]['belief_network'] = belief_G     
 
     # set node attributes accordingly
     nx.set_node_attributes(social_G, belief_networks)
