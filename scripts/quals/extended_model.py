@@ -10,7 +10,6 @@ import numpy as np
 from scipy.stats import norm
 import matplotlib as mpl
 from bisect import bisect
-from scipy.stats import norm
 from math import comb
 from tqdm import tqdm
 from sklearn.cluster import DBSCAN
@@ -216,6 +215,30 @@ def community_social_network(N: int, mu: float, M: int, seed=None):
 
 
 def choose_sender_receiver_belief(G):
+    """Randomly chooses 
+    1. a sender node 
+    2. a receiver node from the sender's neighbors 
+    3. a belief (focal edge) that will be sent from sender to receiver.
+
+    Parameters
+    ----------
+    - G -> social network
+    
+    Returns
+    -------
+    - sender
+    - receiver
+    - focal_edge"""
+
+    sender = random.sample([*G.nodes()],1)[0]
+    receiver = random.sample([*nx.all_neighbors(G, sender)], 1)[0]
+
+    focal_edge = random.sample([*G.nodes[sender]['belief_network'].edges()], 1)[0]
+
+    return sender, receiver, focal_edge
+
+
+def choose_sender_receiver_common_belief(G):
     """Randomly chooses 
     1. a sender node 
     2. a receiver node from the sender's neighbors 
